@@ -60,33 +60,35 @@ function lsSave(events: PublishedEvent[]): void {
   try { localStorage.setItem(LS_KEY, JSON.stringify(events)); } catch {}
 }
 
-// ── DB row → PublishedEvent ────────────────────────────────────────────────
-type DBZone = {
-  id: string; event_id: string; name: string; type: string; color: string;
+// ── Prisma response → PublishedEvent ──────────────────────────────────────
+// Prisma returns camelCase matching our schema @map directives
+type PrismaZone = {
+  id: string; eventId: string; name: string; type: string; color: string;
   x: number; y: number; w: number; h: number; capacity: number; price: number;
-  rows: number | null; cols: number | null; queue_prefix: string | null;
+  rows: number | null; cols: number | null; queuePrefix: string | null;
+  sortOrder: number;
 };
 
-type DBEvent = {
-  id: string; title_vi: string; title_en: string; description: string;
-  venue: string; start_at: string; end_at: string; policy: string;
+type PrismaEvent = {
+  id: string; titleVi: string; titleEn: string; description: string;
+  venue: string; startAt: string; endAt: string; policy: string;
   cover: string; cover2: string; badge: string;
   status: "open" | "draft" | "soldout" | "closed";
-  sold: number; held: number; revenue: string | number;
-  created_at: string; published_at: string | null;
-  zones: DBZone[];
+  sold: number; held: number; revenue: number;
+  createdAt: string; publishedAt: string | null;
+  zones: PrismaZone[];
 };
 
-function fromDB(row: DBEvent): PublishedEvent {
+function fromDB(row: PrismaEvent): PublishedEvent {
   return {
     id: row.id,
     status: row.status,
-    titleVi: row.title_vi,
-    titleEn: row.title_en,
+    titleVi: row.titleVi,
+    titleEn: row.titleEn,
     description: row.description,
     venue: row.venue,
-    startAt: row.start_at,
-    endAt: row.end_at,
+    startAt: row.startAt,
+    endAt: row.endAt,
     policy: row.policy,
     cover: row.cover,
     cover2: row.cover2,
@@ -94,8 +96,8 @@ function fromDB(row: DBEvent): PublishedEvent {
     sold: row.sold,
     held: row.held,
     revenue: Number(row.revenue),
-    createdAt: new Date(row.created_at).getTime(),
-    publishedAt: row.published_at ? new Date(row.published_at).getTime() : undefined,
+    createdAt: new Date(row.createdAt).getTime(),
+    publishedAt: row.publishedAt ? new Date(row.publishedAt).getTime() : undefined,
     zones: (row.zones || []).map(z => ({
       id: z.id,
       name: z.name,
@@ -106,7 +108,7 @@ function fromDB(row: DBEvent): PublishedEvent {
       price: z.price,
       rows: z.rows ?? undefined,
       cols: z.cols ?? undefined,
-      queuePrefix: z.queue_prefix ?? undefined,
+      queuePrefix: z.queuePrefix ?? undefined,
     })),
   };
 }
@@ -221,7 +223,7 @@ export const useEventStore = create<EventStore>((set, get) => ({
     try {
       const res = await fetch("/api/events");
       if (!res.ok) throw new Error("API error");
-      const rows = (await res.json()) as DBEvent[];
+      const rows = (await res.json()) as PrismaEvent[];
       const events = rows.map(fromDB);
       lsSave(events); // keep localStorage in sync
       set({ events, loading: false });

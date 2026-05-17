@@ -1,22 +1,12 @@
-import { sql, ensureTables } from "@/lib/db";
+import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
-    await ensureTables();
-    const rows = await sql`
-      SELECT
-        e.*,
-        COALESCE(
-          json_agg(z ORDER BY z.sort_order, z.id)
-          FILTER (WHERE z.id IS NOT NULL),
-          '[]'
-        ) AS zones
-      FROM events e
-      LEFT JOIN zones z ON z.event_id = e.id
-      GROUP BY e.id
-      ORDER BY e.created_at DESC
-    `;
-    return Response.json(rows);
+    const events = await prisma.event.findMany({
+      include: { zones: { orderBy: { sortOrder: "asc" } } },
+      orderBy: { createdAt: "desc" },
+    });
+    return Response.json(events);
   } catch (err) {
     console.error("[GET /api/events]", err);
     return Response.json({ error: "Database error" }, { status: 500 });
@@ -25,7 +15,6 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    await ensureTables();
     const body = await request.json() as {
       id: string;
       titleVi: string; titleEn: string; description: string;
@@ -39,36 +28,40 @@ export async function POST(request: Request) {
       }>;
     };
 
-    await sql`
-      INSERT INTO events
-        (id, title_vi, title_en, description, venue, start_at, end_at, policy,
-         cover, cover2, badge, status, published_at)
-      VALUES
-        (${body.id}, ${body.titleVi}, ${body.titleEn}, ${body.description},
-         ${body.venue}, ${body.startAt}, ${body.endAt}, ${body.policy},
-         ${body.cover}, ${body.cover2}, ${body.badge}, 'open', now())
-    `;
+    const event = await prisma.event.create({
+      data: {
+        id: body.id,
+        titleVi: body.titleVi,
+        titleEn: body.titleEn,
+        description: body.description,
+        venue: body.venue,
+        startAt: body.startAt,
+        endAt: body.endAt,
+        policy: body.policy,
+        cover: body.cover,
+        cover2: body.cover2,
+        badge: body.badge,
+        status: "open",
+        publishedAt: new Date(),
+        zones: {
+          create: body.zones.map((z, i) => ({
+            id: z.id,
+            name: z.name,
+            type: z.type,
+            color: z.color,
+            x: z.x, y: z.y, w: z.w, h: z.h,
+            capacity: z.capacity,
+            price: z.price,
+            rows: z.rows ?? null,
+            cols: z.cols ?? null,
+            queuePrefix: z.queuePrefix ?? null,
+            sortOrder: i,
+          })),
+        },
+      },
+      include: { zones: { orderBy: { sortOrder: "asc" } } },
+    });
 
-    for (let i = 0; i < body.zones.length; i++) {
-      const z = body.zones[i];
-      await sql`
-        INSERT INTO zones
-          (id, event_id, name, type, color, x, y, w, h,
-           capacity, price, rows, cols, queue_prefix, sort_order)
-        VALUES
-          (${z.id}, ${body.id}, ${z.name}, ${z.type}, ${z.color},
-           ${z.x}, ${z.y}, ${z.w}, ${z.h}, ${z.capacity}, ${z.price},
-           ${z.rows ?? null}, ${z.cols ?? null}, ${z.queuePrefix ?? null}, ${i})
-      `;
-    }
-
-    const [event] = await sql`
-      SELECT e.*,
-        COALESCE(json_agg(z ORDER BY z.sort_order) FILTER (WHERE z.id IS NOT NULL), '[]') AS zones
-      FROM events e LEFT JOIN zones z ON z.event_id = e.id
-      WHERE e.id = ${body.id}
-      GROUP BY e.id
-    `;
     return Response.json(event, { status: 201 });
   } catch (err) {
     console.error("[POST /api/events]", err);

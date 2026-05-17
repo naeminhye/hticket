@@ -1,15 +1,18 @@
-import { sql, ensureTables } from "@/lib/db";
+import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
-    await ensureTables();
-    const rows = await sql`
-      SELECT o.*, e.title_vi AS event_title
-      FROM orders o
-      LEFT JOIN events e ON e.id = o.event_id
-      ORDER BY o.created_at DESC
-      LIMIT 200
-    `;
+    const orders = await prisma.order.findMany({
+      include: { event: { select: { titleVi: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+    // Flatten event title into a top-level field for the client
+    const rows = orders.map((o: typeof orders[number]) => ({
+      ...o,
+      event_title: o.event?.titleVi ?? null,
+      event: undefined,
+    }));
     return Response.json(rows);
   } catch (err) {
     console.error("[GET /api/orders]", err);
@@ -19,37 +22,36 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    await ensureTables();
     const body = await request.json() as {
       eventId: string;
-      buyer: string;
-      email: string;
-      phone?: string;
-      areaName: string;
-      qty: number;
-      total: number;
-      items: unknown[];
+      buyer: string; email: string; phone?: string;
+      areaName: string; qty: number; total: number; items: unknown[];
     };
 
-    const id = `HT-${new Date().getFullYear()}-${Math.floor(Math.random() * 999999).toString().padStart(6, "0")}`;
+    const [order] = await prisma.$transaction([
+      prisma.order.create({
+        data: {
+          eventId: body.eventId,
+          buyer: body.buyer,
+          email: body.email,
+          phone: body.phone ?? "",
+          areaName: body.areaName,
+          qty: body.qty,
+          total: body.total,
+          status: "paid",
+          items: body.items as object[],
+        },
+      }),
+      prisma.event.update({
+        where: { id: body.eventId },
+        data: {
+          sold: { increment: body.qty },
+          revenue: { increment: body.total },
+        },
+      }),
+    ]);
 
-    await sql`
-      INSERT INTO orders (id, event_id, buyer, email, phone, area_name, qty, total, items)
-      VALUES (
-        ${id}, ${body.eventId}, ${body.buyer}, ${body.email},
-        ${body.phone ?? ""}, ${body.areaName}, ${body.qty}, ${body.total},
-        ${JSON.stringify(body.items)}
-      )
-    `;
-
-    // Update event sold + revenue counters atomically
-    await sql`
-      UPDATE events
-      SET sold = sold + ${body.qty}, revenue = revenue + ${body.total}
-      WHERE id = ${body.eventId}
-    `;
-
-    return Response.json({ id }, { status: 201 });
+    return Response.json({ id: order.id }, { status: 201 });
   } catch (err) {
     console.error("[POST /api/orders]", err);
     return Response.json({ error: "Database error" }, { status: 500 });
