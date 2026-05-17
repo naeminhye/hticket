@@ -32,7 +32,7 @@ export default function EventsList({ go }: Props) {
           <h1 className="ad-h1">Sự kiện</h1>
           <div className="ad-h1-sub">{ADMIN_EVENTS.length} sự kiện · {ADMIN_EVENTS.filter(e => e.status === "open").length} đang mở bán</div>
         </div>
-        <button className="h-btn primary" onClick={() => go("editor", { eventId: "indie-night" })}>
+        <button className="h-btn primary" onClick={() => go("editor", {})}>
           <span>＋</span> Tạo sự kiện
         </button>
       </div>
