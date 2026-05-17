@@ -69,6 +69,7 @@ export default function EventEditor({ go, eventId }: Props) {
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(isNew ? null : "vip");
   const [tool, setTool] = useState<"select" | "rect">("select");
   const [saved, setSaved] = useState(false);
+  const [published, setPublished] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ id: string; offX: number; offY: number } | null>(null);
 
@@ -599,7 +600,7 @@ export default function EventEditor({ go, eventId }: Props) {
       )}
 
       {/* ── Publish Tab ── */}
-      {tab === "publish" && (
+      {tab === "publish" && !published && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 16 }}>
           <div className="chart-card">
             <div className="ed-h">Kiểm tra trước khi publish</div>
@@ -650,13 +651,84 @@ export default function EventEditor({ go, eventId }: Props) {
             <button className="h-btn" style={{ width: "100%", marginBottom: 8 }} onClick={saveDraft}>
               💾 Lưu nháp {saved && "✓"}
             </button>
-            <button className="h-btn primary" style={{ width: "100%" }} disabled={errs > 0}>
+            <button
+              className="h-btn primary"
+              style={{ width: "100%" }}
+              disabled={errs > 0}
+              onClick={() => { saveDraft(); setPublished(true); }}
+            >
               🚀 Publish sự kiện
             </button>
             <div style={{ fontSize: 11, color: "var(--ink-faint)", marginTop: 8 }}>
-              {/* TODO: POST /events then PATCH /events/:id/publish */}
               Vé sẽ mở bán ngay sau khi publish
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Published Success Screen ── */}
+      {tab === "publish" && published && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20, padding: "24px 0" }}>
+          {/* Confetti banner */}
+          <div style={{
+            width: "100%", maxWidth: 600, borderRadius: "var(--radius-lg)",
+            background: "linear-gradient(135deg, #9EE6CF 0%, #C4B5FB 50%, #FF8FA8 100%)",
+            border: "2px solid var(--ink)", boxShadow: "4px 4px 0 var(--ink)",
+            padding: "36px 24px", textAlign: "center", position: "relative", overflow: "hidden",
+          }}>
+            <div style={{ position: "absolute", top: -8, right: 16, transform: "rotate(12deg)" }}>
+              <Tickie size={96} mood="party" color="#fff" />
+            </div>
+            <div style={{ fontSize: 48, marginBottom: 8 }}>🎉</div>
+            <h2 style={{ fontSize: 28, fontFamily: "var(--font-display)", color: "var(--ink)", marginBottom: 4 }}>
+              Sự kiện đã được publish!
+            </h2>
+            <div style={{ fontSize: 15, color: "var(--ink-soft)", fontWeight: 600 }}>
+              {info.titleVi || "Sự kiện của bạn"}
+            </div>
+          </div>
+
+          {/* Summary stats */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, width: "100%", maxWidth: 600 }}>
+            {[
+              { label: "Địa điểm", value: info.venue || "—" },
+              { label: "Khu vực", value: `${zones.length} khu` },
+              { label: "Tổng sức chứa", value: zones.reduce((s, z) => s + z.capacity, 0).toLocaleString("vi-VN") + " chỗ" },
+            ].map(s => (
+              <div key={s.label} className="chart-card" style={{ textAlign: "center", padding: "14px 10px" }}>
+                <div style={{ fontSize: 11, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{s.label}</div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Zone price summary */}
+          {zones.length > 0 && (
+            <div className="chart-card" style={{ width: "100%", maxWidth: 600 }}>
+              <div className="ed-h" style={{ marginTop: 0 }}>Vé đang mở bán</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {zones.map(z => (
+                  <div key={z.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ width: 12, height: 12, background: z.color, border: "1px solid var(--ink)", borderRadius: 3, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 14 }}>{z.name}</span>
+                    <span className="h-pill">{z.capacity.toLocaleString("vi-VN")} chỗ</span>
+                    <span style={{ fontWeight: 700, fontSize: 14, minWidth: 100, textAlign: "right" }}>
+                      {fmtVNDFull(z.price)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
+            <button className="h-btn primary" onClick={() => go("events")}>
+              ← Về danh sách sự kiện
+            </button>
+            <button className="h-btn ghost" onClick={() => { setPublished(false); setTab("info"); }}>
+              Chỉnh sửa tiếp
+            </button>
           </div>
         </div>
       )}
