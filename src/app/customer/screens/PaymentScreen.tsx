@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { Tickie } from "@/components/Tickie";
 import { type Event, type Area, type TicketItem, fmtVNDFull } from "@/lib/data";
+import { useEventStore } from "@/store/eventStore";
 import type { Screen, NavParams } from "@/store/customerStore";
 import TopBar from "../components/TopBar";
 
@@ -39,6 +40,7 @@ export default function PaymentScreen({ go, event, area, items }: Props) {
   const [secondsLeft, setSecondsLeft] = useState(10 * 60);
   const [method, setMethod] = useState<"momo" | "vnpay" | "visa" | "zalo">("momo");
   const [processing, setProcessing] = useState(false);
+  const { recordPurchase } = useEventStore();
 
   useEffect(() => {
     if (secondsLeft <= 0) return;
@@ -56,8 +58,8 @@ export default function PaymentScreen({ go, event, area, items }: Props) {
 
   const pay = () => {
     setProcessing(true);
-    // TODO: POST /orders/:id/pay — call real payment API here
     setTimeout(() => {
+      recordPurchase(event.id, items);
       setProcessing(false);
       go("ticket", { eventId: event.id, areaId: area.id, items });
     }, 1800);

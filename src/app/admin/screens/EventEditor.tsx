@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Tickie } from "@/components/Tickie";
 import { ADMIN_EVENTS, fmtVNDFull, fmtVND } from "@/lib/data";
+import { useEventStore } from "@/store/eventStore";
 import type { AdminScreen, AdminParams } from "../AdminApp";
 
 interface Props {
@@ -90,6 +91,7 @@ export default function EventEditor({ go, eventId }: Props) {
   const [tool, setTool] = useState<"select" | "rect">("select");
   const [saved, setSaved] = useState(false);
   const [published, setPublished] = useState(false);
+  const { publish: publishToStore } = useEventStore();
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ id: string; offX: number; offY: number } | null>(null);
 
@@ -675,7 +677,12 @@ export default function EventEditor({ go, eventId }: Props) {
               className="h-btn primary"
               style={{ width: "100%" }}
               disabled={errs > 0}
-              onClick={() => { saveDraft(); lsDel(storageKey); setPublished(true); }}
+              onClick={() => {
+                publishToStore(info, zones);
+                lsDel(storageKey);
+                setSaved(false);
+                setPublished(true);
+              }}
             >
               🚀 Publish sự kiện
             </button>

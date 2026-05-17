@@ -34,6 +34,8 @@ export type Area = {
   perks?: string[];
   soldOut?: boolean;
   allowsCompanion?: boolean;
+  rows?: number;
+  cols?: number;
 };
 
 export type Seat = {
@@ -222,8 +224,8 @@ export function getEventById(eventId: string): Event | undefined {
 }
 
 export function generateSeats(area: Area) {
-  const rows = area.id === "vip-a" ? 10 : (area.id === "std-a" ? 16 : 10);
-  const cols = 20;
+  const rows = area.rows ?? (area.id === "vip-a" ? 10 : area.id === "std-a" ? 16 : 10);
+  const cols = area.cols ?? 20;
   const rowLabels = "ABCDEFGHIJKLMNOPQRST".split("");
   const seats: Seat[] = [];
   for (let r = 0; r < rows; r++) {

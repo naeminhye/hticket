@@ -2,6 +2,7 @@
 import { useEffect } from "react";
 import { useCustomerStore } from "@/store/customerStore";
 import { DEMO_EVENTS, STARLIGHT_AREAS, getEventById, getAreasForEvent } from "@/lib/data";
+import { useEventStore, toCustomerEvent, toAreas } from "@/store/eventStore";
 
 import HomeScreen from "./screens/HomeScreen";
 import EventScreen from "./screens/EventScreen";
@@ -14,30 +15,43 @@ import TicketScreen from "./screens/TicketScreen";
 
 export default function CustomerApp() {
   const { screen, params, currentEvent, currentArea, go, setCurrentEvent, setCurrentArea } = useCustomerStore();
+  const { events: storeEvents, rehydrate } = useEventStore();
 
-  // Sync event/area from params
-  useEffect(() => {
-    if (params.eventId) {
-      const event = getEventById(params.eventId);
-      if (event) setCurrentEvent(event);
-    }
-  }, [params.eventId]);
+  useEffect(() => { rehydrate(); }, []);
 
+  // Sync event from params — check store first, then demo data
   useEffect(() => {
-    if (params.areaId) {
-      const areas = getAreasForEvent(params.eventId || "");
-      const area = areas.find(a => a.id === params.areaId);
-      if (area) setCurrentArea(area);
+    if (!params.eventId) return;
+    const stored = storeEvents.find(e => e.id === params.eventId);
+    if (stored) {
+      setCurrentEvent(toCustomerEvent(stored));
+    } else {
+      const ev = getEventById(params.eventId);
+      if (ev) setCurrentEvent(ev);
     }
-  }, [params.areaId]);
+  }, [params.eventId, storeEvents]);
+
+  // Sync area from params
+  useEffect(() => {
+    if (!params.areaId) return;
+    const stored = storeEvents.find(e => e.id === params.eventId);
+    const areas = stored ? toAreas(stored) : getAreasForEvent(params.eventId || "");
+    const area = areas.find(a => a.id === params.areaId);
+    if (area) setCurrentArea(area);
+  }, [params.areaId, params.eventId, storeEvents]);
 
   const event = currentEvent || DEMO_EVENTS[0];
-  const areas = STARLIGHT_AREAS;
+
+  // Use zones from store for custom events, STARLIGHT_AREAS for demo events
+  const storedEvent = storeEvents.find(e => e.id === event.id);
+  const areas = storedEvent ? toAreas(storedEvent) : STARLIGHT_AREAS;
   const area = currentArea || areas[0];
+
+  const allEvents = [...storeEvents.map(toCustomerEvent), ...DEMO_EVENTS];
 
   switch (screen) {
     case "home":
-      return <HomeScreen go={go} events={DEMO_EVENTS} />;
+      return <HomeScreen go={go} events={allEvents} />;
     case "event":
       return <EventScreen go={go} event={event} areas={areas} />;
     case "areas":
@@ -53,6 +67,6 @@ export default function CustomerApp() {
     case "ticket":
       return <TicketScreen go={go} event={event} area={area} items={params.items || []} />;
     default:
-      return <HomeScreen go={go} events={DEMO_EVENTS} />;
+      return <HomeScreen go={go} events={allEvents} />;
   }
 }

@@ -1,7 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Tickie } from "@/components/Tickie";
 import { ADMIN_EVENTS } from "@/lib/data";
+import { useEventStore, toAdminEvent } from "@/store/eventStore";
 import type { AdminScreen, AdminParams } from "../AdminApp";
 
 interface Props {
@@ -19,8 +20,13 @@ const FILTERS = [
 export default function EventsList({ go }: Props) {
   const [filter, setFilter] = useState("all");
   const [q, setQ] = useState("");
+  const { events: storeEvents, rehydrate } = useEventStore();
 
-  const filtered = ADMIN_EVENTS.filter(e =>
+  useEffect(() => { rehydrate(); }, []);
+
+  const allEvents = [...storeEvents.map(toAdminEvent), ...ADMIN_EVENTS];
+
+  const filtered = allEvents.filter(e =>
     (filter === "all" || e.status === filter) &&
     (q === "" || e.title.toLowerCase().includes(q.toLowerCase()))
   );
@@ -30,7 +36,7 @@ export default function EventsList({ go }: Props) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 4 }}>
         <div>
           <h1 className="ad-h1">Sự kiện</h1>
-          <div className="ad-h1-sub">{ADMIN_EVENTS.length} sự kiện · {ADMIN_EVENTS.filter(e => e.status === "open").length} đang mở bán</div>
+          <div className="ad-h1-sub">{allEvents.length} sự kiện · {allEvents.filter(e => e.status === "open").length} đang mở bán</div>
         </div>
         <button className="h-btn primary" onClick={() => go("editor", {})}>
           <span>＋</span> Tạo sự kiện
