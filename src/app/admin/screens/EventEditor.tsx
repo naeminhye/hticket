@@ -49,23 +49,43 @@ const PALETTE = [
 let zoneCounter = 0;
 function newZoneId() { return `zone-${++zoneCounter}`; }
 
+function lsGet<T>(key: string): T | null {
+  if (typeof window === "undefined") return null;
+  try { return JSON.parse(localStorage.getItem(key) ?? "null") as T; } catch { return null; }
+}
+function lsSet(key: string, value: unknown) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+function lsDel(key: string) {
+  try { localStorage.removeItem(key); } catch {}
+}
+
 export default function EventEditor({ go, eventId }: Props) {
   const existing = ADMIN_EVENTS.find(e => e.id === eventId);
   const isNew = !existing;
+  const storageKey = isNew ? "hticket:draft:new" : `hticket:draft:${eventId}`;
 
   const [tab, setTab] = useState<"info" | "layout" | "pricing" | "rules" | "publish">(
     isNew ? "info" : "layout"
   );
-  const [info, setInfo] = useState<InfoState>({
-    titleVi: existing?.title ?? "",
-    titleEn: "",
-    description: "",
-    venue: existing?.venue ?? "",
-    startAt: "",
-    endAt: "",
-    policy: "Hoàn vé trong vòng 7 ngày trước sự kiện · Không đổi vé khác sự kiện",
+  const [info, setInfo] = useState<InfoState>(() => {
+    const persisted = lsGet<{ info?: InfoState }>(storageKey);
+    if (persisted?.info) return persisted.info;
+    return {
+      titleVi: existing?.title ?? "",
+      titleEn: "",
+      description: "",
+      venue: existing?.venue ?? "",
+      startAt: "",
+      endAt: "",
+      policy: "Hoàn vé trong vòng 7 ngày trước sự kiện · Không đổi vé khác sự kiện",
+    };
   });
-  const [zones, setZones] = useState<Zone[]>(isNew ? [] : EDIT_ZONES);
+  const [zones, setZones] = useState<Zone[]>(() => {
+    const persisted = lsGet<{ zones?: Zone[] }>(storageKey);
+    if (persisted?.zones) return persisted.zones;
+    return isNew ? [] : EDIT_ZONES;
+  });
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(isNew ? null : "vip");
   const [tool, setTool] = useState<"select" | "rect">("select");
   const [saved, setSaved] = useState(false);
@@ -117,7 +137,7 @@ export default function EventEditor({ go, eventId }: Props) {
   };
 
   const saveDraft = () => {
-    // TODO: POST /events (new) or PATCH /events/:id (edit)
+    lsSet(storageKey, { info, zones });
     setSaved(true);
   };
   useEffect(() => {
@@ -655,7 +675,7 @@ export default function EventEditor({ go, eventId }: Props) {
               className="h-btn primary"
               style={{ width: "100%" }}
               disabled={errs > 0}
-              onClick={() => { saveDraft(); setPublished(true); }}
+              onClick={() => { saveDraft(); lsDel(storageKey); setPublished(true); }}
             >
               🚀 Publish sự kiện
             </button>
