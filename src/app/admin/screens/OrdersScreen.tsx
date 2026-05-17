@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ADMIN_ORDERS, fmtVNDFull } from "@/lib/data";
 
 const STATUS_CONFIG = {
@@ -18,21 +18,105 @@ const FILTER_TABS = [
   { k: "refunded", l: "Refunded" },
 ];
 
+type DBOrder = {
+  id: string;
+  event_id: string;
+  event_title: string | null;
+  buyer: string;
+  email: string;
+  area_name: string;
+  qty: number;
+  total: number;
+  status: "paid" | "held" | "expired" | "failed" | "refunded";
+  created_at: string;
+};
+
+function fmtRelative(iso: string): string {
+  const d = new Date(iso);
+  const now = Date.now();
+  const diff = now - d.getTime();
+  if (diff < 60_000) return "vừa xong";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} phút trước`;
+  if (diff < 86_400_000) return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} hôm nay`;
+  return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+type UnifiedOrder = {
+  id: string;
+  buyer: string;
+  email: string;
+  event: string;
+  area: string;
+  qty: number;
+  total: number;
+  status: "paid" | "held" | "expired" | "failed" | "refunded";
+  time: string;
+};
+
 export default function OrdersScreen() {
   const [filter, setFilter] = useState("all");
-  const filtered = ADMIN_ORDERS.filter(o => filter === "all" || o.status === filter);
+  const [q, setQ] = useState("");
+  const [dbOrders, setDbOrders] = useState<UnifiedOrder[]>([]);
+
+  useEffect(() => {
+    fetch("/api/orders")
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: DBOrder[]) => {
+        setDbOrders(rows.map(o => ({
+          id: o.id,
+          buyer: o.buyer,
+          email: o.email,
+          event: o.event_title ?? o.event_id,
+          area: o.area_name,
+          qty: o.qty,
+          total: o.total,
+          status: o.status,
+          time: fmtRelative(o.created_at),
+        })));
+      })
+      .catch(() => {}); // silently fall back to demo data only
+  }, []);
+
+  // DB orders first (newest), then demo data
+  const allOrders: UnifiedOrder[] = [
+    ...dbOrders,
+    ...ADMIN_ORDERS.map(o => ({
+      id: o.id,
+      buyer: o.buyer,
+      email: o.email,
+      event: o.event,
+      area: o.area,
+      qty: o.qty,
+      total: o.total,
+      status: o.status,
+      time: o.time,
+    })),
+  ];
+
+  const filtered = allOrders.filter(o =>
+    (filter === "all" || o.status === filter) &&
+    (q === "" || o.id.includes(q) || o.buyer.toLowerCase().includes(q.toLowerCase()) || o.email.toLowerCase().includes(q.toLowerCase()))
+  );
+
+  const totalRevenue = dbOrders.filter(o => o.status === "paid").reduce((s, o) => s + o.total, 0);
+  const heldCount = allOrders.filter(o => o.status === "held").length;
+  const refundCount = allOrders.filter(o => o.status === "refunded").length;
 
   const KPIs = [
-    { tag: "Hôm nay", val: ADMIN_ORDERS.length, sub: "đơn", color: "var(--pink-soft)", emoji: "🧾" },
-    { tag: "Doanh thu", val: "23.5tr₫", sub: "+12%", color: "var(--mint-soft)", emoji: "💰" },
-    { tag: "Đang giữ", val: ADMIN_ORDERS.filter(o => o.status === "held").length, sub: "chờ thanh toán", color: "var(--butter-soft)", emoji: "⏳" },
-    { tag: "Hoàn tiền", val: ADMIN_ORDERS.filter(o => o.status === "refunded").length, sub: "đang xử lý", color: "var(--grape-soft)", emoji: "↩" },
+    { tag: "Đơn hôm nay", val: allOrders.length, sub: "đơn", color: "var(--pink-soft)", emoji: "🧾" },
+    { tag: "Doanh thu (DB)", val: totalRevenue > 0 ? `${(totalRevenue / 1_000_000).toFixed(1)}tr₫` : "—", sub: "từ đơn thực tế", color: "var(--mint-soft)", emoji: "💰" },
+    { tag: "Đang giữ", val: heldCount, sub: "chờ thanh toán", color: "var(--butter-soft)", emoji: "⏳" },
+    { tag: "Hoàn tiền", val: refundCount, sub: "đang xử lý", color: "var(--grape-soft)", emoji: "↩" },
   ];
 
   return (
     <>
       <h1 className="ad-h1">Đơn hàng</h1>
-      <div className="ad-h1-sub">Tất cả đơn của bạn · Manage all orders</div>
+      <div className="ad-h1-sub">
+        {dbOrders.length > 0
+          ? `${dbOrders.length} đơn từ database · ${ADMIN_ORDERS.length} đơn demo`
+          : "Tất cả đơn của bạn · Manage all orders"}
+      </div>
 
       <div className="kpi-grid">
         {KPIs.map((k, i) => (
@@ -45,7 +129,7 @@ export default function OrdersScreen() {
       </div>
 
       <div className="ev-bar">
-        <input placeholder="Tìm theo mã đơn, email, tên…" />
+        <input placeholder="Tìm theo mã đơn, email, tên…" value={q} onChange={e => setQ(e.target.value)} />
         {FILTER_TABS.map(t => (
           <button key={t.k} className={`chip ${filter === t.k ? "on" : ""}`} onClick={() => setFilter(t.k)}>{t.l}</button>
         ))}
@@ -62,12 +146,12 @@ export default function OrdersScreen() {
           <div>Trạng thái</div>
         </div>
         {filtered.map(o => {
-          const sc = STATUS_CONFIG[o.status];
+          const sc = STATUS_CONFIG[o.status] ?? STATUS_CONFIG.paid;
           return (
             <div key={o.id} className="order-row body">
               <div className="order-mono" data-label="Mã">{o.id}</div>
               <div data-label="Người mua">
-                <div style={{ fontWeight: 700, fontSize: 13 }}>{o.buyer}</div>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{o.buyer || "—"}</div>
                 <div style={{ fontSize: 11, color: "var(--ink-faint)" }}>{o.email}</div>
               </div>
               <div data-label="Sự kiện">

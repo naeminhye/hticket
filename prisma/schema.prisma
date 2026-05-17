@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Event {
+  id          String   @id @default(cuid())
+  titleVi     String
+  titleEn     String   @default("")
+  description String   @default("")
+  venue       String
+  startAt     String   @default("")
+  endAt       String   @default("")
+  policy      String   @default("")
+  cover       String   @default("#FF8FA8")
+  cover2      String   @default("#C4B5FB")
+  badge       String   @default("concert")
+  status      String   @default("open")
+  sold        Int      @default(0)
+  held        Int      @default(0)
+  revenue     BigInt   @default(0)
+  createdAt   DateTime @default(now())
+  publishedAt DateTime?
+  zones       Zone[]
+  orders      Order[]
+}
+
+model Zone {
+  id          String  @id @default(cuid())
+  eventId     String
+  event       Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name        String
+  type        String  @default("seating")
+  color       String  @default("#FF8FA8")
+  x           Float   @default(0)
+  y           Float   @default(0)
+  w           Float   @default(240)
+  h           Float   @default(80)
+  capacity    Int     @default(200)
+  price       Int     @default(0)
+  rows        Int?
+  cols        Int?
+  queuePrefix String?
+  sortOrder   Int     @default(0)
+}
+
+model Order {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id])
+  buyer     String
+  email     String
+  phone     String   @default("")
+  areaName  String
+  qty       Int
+  total     Int
+  status    String   @default("paid")
+  items     Json
+  createdAt DateTime @default(now())
+}

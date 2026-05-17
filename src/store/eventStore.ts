@@ -42,11 +42,83 @@ type InfoInput = {
 
 type EventStore = {
   events: PublishedEvent[];
-  rehydrate: () => void;
-  publish: (info: InfoInput, zones: StoredZone[]) => PublishedEvent;
-  recordPurchase: (eventId: string, items: { price: number }[]) => void;
+  loading: boolean;
+  rehydrate: () => Promise<void>;
+  publish: (info: InfoInput, zones: StoredZone[]) => Promise<PublishedEvent>;
+  recordPurchase: (eventId: string, items: { price: number }[], buyer: { name: string; email: string; phone: string }, areaName: string) => Promise<void>;
 };
 
+// ── localStorage fallback ──────────────────────────────────────────────────
+const LS_KEY = "hticket:events";
+
+function lsLoad(): PublishedEvent[] {
+  if (typeof window === "undefined") return [];
+  try { return JSON.parse(localStorage.getItem(LS_KEY) ?? "[]"); } catch { return []; }
+}
+
+function lsSave(events: PublishedEvent[]): void {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(events)); } catch {}
+}
+
+// ── DB row → PublishedEvent ────────────────────────────────────────────────
+type DBZone = {
+  id: string; event_id: string; name: string; type: string; color: string;
+  x: number; y: number; w: number; h: number; capacity: number; price: number;
+  rows: number | null; cols: number | null; queue_prefix: string | null;
+};
+
+type DBEvent = {
+  id: string; title_vi: string; title_en: string; description: string;
+  venue: string; start_at: string; end_at: string; policy: string;
+  cover: string; cover2: string; badge: string;
+  status: "open" | "draft" | "soldout" | "closed";
+  sold: number; held: number; revenue: string | number;
+  created_at: string; published_at: string | null;
+  zones: DBZone[];
+};
+
+function fromDB(row: DBEvent): PublishedEvent {
+  return {
+    id: row.id,
+    status: row.status,
+    titleVi: row.title_vi,
+    titleEn: row.title_en,
+    description: row.description,
+    venue: row.venue,
+    startAt: row.start_at,
+    endAt: row.end_at,
+    policy: row.policy,
+    cover: row.cover,
+    cover2: row.cover2,
+    badge: row.badge,
+    sold: row.sold,
+    held: row.held,
+    revenue: Number(row.revenue),
+    createdAt: new Date(row.created_at).getTime(),
+    publishedAt: row.published_at ? new Date(row.published_at).getTime() : undefined,
+    zones: (row.zones || []).map(z => ({
+      id: z.id,
+      name: z.name,
+      type: z.type as StoredZone["type"],
+      color: z.color,
+      x: z.x, y: z.y, w: z.w, h: z.h,
+      capacity: z.capacity,
+      price: z.price,
+      rows: z.rows ?? undefined,
+      cols: z.cols ?? undefined,
+      queuePrefix: z.queue_prefix ?? undefined,
+    })),
+  };
+}
+
+// ── ID generation ─────────────────────────────────────────────────────────
+let _n = 0;
+function genId(title: string): string {
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 28) || "event";
+  return `${slug}-${(Date.now() + ++_n).toString(36)}`;
+}
+
+// ── Gradient palettes ─────────────────────────────────────────────────────
 const PALETTES = [
   { cover: "#FF8FA8", cover2: "#C4B5FB" },
   { cover: "#9EE6CF", cover2: "#B8D9FF" },
@@ -55,22 +127,7 @@ const PALETTES = [
   { cover: "#FFAB91", cover2: "#9EE6CF" },
 ];
 
-const LS_KEY = "hticket:events";
-
-function load(): PublishedEvent[] {
-  if (typeof window === "undefined") return [];
-  try { return JSON.parse(localStorage.getItem(LS_KEY) ?? "[]"); } catch { return []; }
-}
-
-function save(events: PublishedEvent[]): void {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(events)); } catch {}
-}
-
-let _n = 0;
-function genId(title: string): string {
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 28) || "event";
-  return `${slug}-${(Date.now() + ++_n).toString(36)}`;
-}
+// ── Converters (public) ───────────────────────────────────────────────────
 
 function fmtDate(iso: string): string {
   if (!iso) return "";
@@ -154,15 +211,31 @@ export function toAdminEvent(pe: PublishedEvent): AdminEvent {
   };
 }
 
+// ── Zustand store ─────────────────────────────────────────────────────────
 export const useEventStore = create<EventStore>((set, get) => ({
   events: [],
+  loading: false,
 
-  rehydrate: () => set({ events: load() }),
+  rehydrate: async () => {
+    set({ loading: true });
+    try {
+      const res = await fetch("/api/events");
+      if (!res.ok) throw new Error("API error");
+      const rows = (await res.json()) as DBEvent[];
+      const events = rows.map(fromDB);
+      lsSave(events); // keep localStorage in sync
+      set({ events, loading: false });
+    } catch {
+      // Offline / DB unreachable — fall back to localStorage
+      set({ events: lsLoad(), loading: false });
+    }
+  },
 
-  publish: (info, zones) => {
+  publish: async (info, zones) => {
     const palette = PALETTES[Math.floor(Math.random() * PALETTES.length)];
-    const event: PublishedEvent = {
-      id: genId(info.titleVi),
+    const id = genId(info.titleVi);
+    const newEvent: PublishedEvent = {
+      id,
       status: "open",
       ...info,
       zones,
@@ -174,18 +247,47 @@ export const useEventStore = create<EventStore>((set, get) => ({
       createdAt: Date.now(),
       publishedAt: Date.now(),
     };
-    const events = [event, ...get().events];
-    save(events);
+
+    // Optimistic update
+    const events = [newEvent, ...get().events];
     set({ events });
-    return event;
+    lsSave(events);
+
+    try {
+      await fetch("/api/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...info, ...palette, badge: "concert", zones }),
+      });
+    } catch (err) {
+      console.warn("[eventStore] publish: DB write failed, localStorage only", err);
+    }
+
+    return newEvent;
   },
 
-  recordPurchase: (eventId, items) => {
-    const revenue = items.reduce((s, i) => s + i.price, 0);
+  recordPurchase: async (eventId, items, buyer, areaName) => {
+    const qty = items.length;
+    const total = items.reduce((s, i) => s + i.price, 0);
+
+    // Optimistic update
     const events = get().events.map(e =>
-      e.id === eventId ? { ...e, sold: e.sold + items.length, revenue: e.revenue + revenue } : e
+      e.id === eventId ? { ...e, sold: e.sold + qty, revenue: e.revenue + total } : e
     );
-    save(events);
     set({ events });
+    lsSave(events);
+
+    try {
+      await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId, buyer: buyer.name, email: buyer.email, phone: buyer.phone,
+          areaName, qty, total, items,
+        }),
+      });
+    } catch (err) {
+      console.warn("[eventStore] recordPurchase: DB write failed, localStorage only", err);
+    }
   },
 }));
